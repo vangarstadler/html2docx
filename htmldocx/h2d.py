@@ -42,7 +42,6 @@ DEFAULT_TABLE_STYLE = None
 # Style to use with paragraphs. By default no style is used.
 DEFAULT_PARAGRAPH_STYLE = None
 
-
 def get_filename_from_url(url):
     return os.path.basename(urlparse(url).path)
 
@@ -307,6 +306,27 @@ class HtmlToDocx(HTMLParser):
         return string_dict
 
     def handle_li(self):
+        def __is_first_ol_element(
+            HTMLParser__startag_text: str) -> bool:
+            """determines if ol is first of ol list using starttag with id.
+
+
+            Args:
+                HTMLParser__startag_text (str): starttag as obtained by parser.
+
+            Returns:
+                bool: True if the case, False otherwise
+            """
+
+            all_ordered_lists_in_html_snippet = self.soup.find_all("ol")
+            for ol in all_ordered_lists_in_html_snippet:
+                try:
+                    if ol.contents[0].attrs["id"] in HTMLParser__startag_text:
+                        return True
+                except Exception:
+                    return False
+            return False
+
         def __restart_numbering(paragraph: Paragraph) -> Paragraph:
             """Private method to reset list numbering of a given paragraph.
             Implementation from: https://github.com/python-openxml/python-docx/pull/582#issuecomment-1717139576
@@ -357,7 +377,9 @@ class HtmlToDocx(HTMLParser):
         self.paragraph = self.doc.add_paragraph(style=list_style)
 
         # TODO: only restart numbering if item is first li inside ol
-        if list_type == "ol":
+        if list_type == "ol" and __is_first_ol_element(
+            HTMLParser__startag_text=self._HTMLParser__starttag_text, soup=self.soup
+        ):
             self.paragraph = __restart_numbering(paragraph=self.paragraph)
 
         # Indentation: default = no indent
