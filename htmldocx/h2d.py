@@ -27,6 +27,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.table import Table, _Cell, _Row
 from docx.document import Document as DocumentClass
+from docx.text.paragraph import Paragraph
 
 from bs4 import BeautifulSoup
 
@@ -176,7 +177,7 @@ styles = {
     "LIST_B3": "List Bullet",
     "LIST_B4": "List Bullet",
     "LIST_B5": "List Bullet",
-    "LIST_N1": "List Number 1",
+    "LIST_N1": "List Number",
     "LIST_N2": "List Number 2",
     "LIST_N3": "List Number 3",
     "LIST_N4": "List Number 4",
@@ -217,9 +218,9 @@ class HtmlToDocx(HTMLParser):
             "list": [],
         }
         if document:
-            self.doc = document
+            self.doc: DocumentClass | _Cell = document
         else:
-            self.doc = Document()
+            self.doc: DocumentClass | _Cell = Document()
         self.bs = self.options["fix-html"]  # whether or not to clean with BeautifulSoup
         self.document = self.doc
         if isinstance(self.document, _Cell):
@@ -306,6 +307,38 @@ class HtmlToDocx(HTMLParser):
         return string_dict
 
     def handle_li(self):
+        def __restart_numbering(paragraph: Paragraph) -> Paragraph:
+            """Private method to reset list numbering of a given paragraph.
+            Implementation from: https://github.com/python-openxml/python-docx/pull/582#issuecomment-1717139576
+
+            Args:
+                paragraph (Paragraph): paragraph object
+
+            Returns:
+                Paragraph: paragraph object with reset list numbering
+            """
+            # Getting the abstract number of paragraph
+            abstract_num_id = (
+                paragraph.part.document.part.numbering_part.element.num_having_numId(
+                    paragraph.style.element.get_or_add_pPr()
+                    .get_or_add_numPr()
+                    .numId.val
+                ).abstractNumId.val
+            )
+
+            # Add abstract number to numbering part and reset
+            num = paragraph.part.numbering_part.element.add_num(abstract_num_id)
+            num.add_lvlOverride(ilvl=0).add_startOverride(1)
+
+            # Get or add elements to paragraph
+            p_pr = paragraph._p.get_or_add_pPr()
+            num_pr = p_pr.get_or_add_numPr()
+            ilvl = num_pr.get_or_add_ilvl()
+            ilvl.val = int("0")
+            num_id = num_pr.get_or_add_numId()
+            num_id.val = int(num.numId)
+            return paragraph
+
         # check list stack to determine style and depth
 
         list_depth = len(self.tags["list"])
@@ -316,13 +349,16 @@ class HtmlToDocx(HTMLParser):
         else:
             list_type = "ul"  # assign unordered if no tag
 
-        # TODO: list style assignment
         if list_type == "ol":
             list_style = styles[f"LIST_N{list_depth}"]
         else:
             list_style = styles[f"LIST_B{list_depth}"]
 
         self.paragraph = self.doc.add_paragraph(style=list_style)
+
+        # TODO: only restart numbering if item is first li inside ol
+        if list_type == "ol":
+            self.paragraph = __restart_numbering(paragraph=self.paragraph)
 
         # Indentation: default = no indent
         if list_depth > 1:
@@ -491,7 +527,7 @@ class HtmlToDocx(HTMLParser):
 
         # Create a new run object (a wrapper over a 'w:r' element)
         new_run = docx.text.run.Run(docx.oxml.shared.OxmlElement("w:r"), self.paragraph)
-        new_run.text = text
+        new_run.text = text + " "
 
         new_run.style = __get_or_create_hyperlink_style(self.paragraph.part.document)
 
